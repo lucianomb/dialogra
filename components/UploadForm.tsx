@@ -19,14 +19,14 @@ import LoadingOverlay from '@/components/LoadingOverlay'
 
 // Validation Schema
 const formSchema = z.object({
-  pdfFile: z.instanceof(File).refine(
-    (file) => file.size <= 50 * 1024 * 1024,
+  pdfFile: z.instanceof(File).nullable().optional().refine(
+    (file) => !file || file.size <= 50 * 1024 * 1024,
     'PDF file must be max 50MB'
   ).refine(
-    (file) => file.type === 'application/pdf',
+    (file) => !file || file.type === 'application/pdf',
     'File must be a PDF'
   ),
-  coverImage: z.instanceof(File).optional().refine(
+  coverImage: z.instanceof(File).nullable().optional().refine(
     (file) => !file || file.size <= 10 * 1024 * 1024,
     'Cover image must be max 10MB'
   ).refine(
@@ -81,6 +81,7 @@ const UploadForm = () => {
     if (pdfInputRef.current) {
       pdfInputRef.current.value = ''
     }
+    form.setValue('pdfFile', null, { shouldValidate: true, shouldDirty: true })
     form.clearErrors('pdfFile')
   }
 
@@ -89,20 +90,39 @@ const UploadForm = () => {
     if (coverInputRef.current) {
       coverInputRef.current.value = ''
     }
+    form.setValue('coverImage', null, { shouldValidate: true, shouldDirty: true })
     form.clearErrors('coverImage')
   }
 
   const onSubmit = async (values: FormValues) => {
     setIsSubmitting(true)
     try {
-      // Aquí iría la lógica de envío del formulario
-      console.log('Form submitted:', values)
+      // Log sanitized telemetry event without exposing file metadata
+      console.log('Book upload initiated', {
+        hasPdf: !!values.pdfFile,
+        hasImage: !!values.coverImage,
+        voice: values.voice,
+      })
       // Simular llamada a API
       await new Promise(resolve => setTimeout(resolve, 2000))
     } catch (error) {
       console.error('Error submitting form:', error)
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handlePdfKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      pdfInputRef.current?.click()
+    }
+  }
+
+  const handleCoverKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      coverInputRef.current?.click()
     }
   }
 
@@ -133,8 +153,12 @@ const UploadForm = () => {
                   <FormLabel className="form-label">Book PDF File</FormLabel>
                   <FormControl>
                     <div
-                      className="upload-dropzone cursor-pointer border-2 border-dashed border-(--border-subtle)"
+                      className="upload-dropzone cursor-pointer border-2 border-dashed border-(--border-subtle) focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       onClick={() => pdfInputRef.current?.click()}
+                      onKeyDown={handlePdfKeyDown}
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Upload PDF file. Press Enter or Space to open file selection dialog."
                     >
                       {!pdfFileName ? (
                         <div className="file-upload-shadow">
@@ -180,8 +204,12 @@ const UploadForm = () => {
                   <FormLabel className="form-label">Cover Image (Optional)</FormLabel>
                   <FormControl>
                     <div
-                      className="upload-dropzone cursor-pointer border-2 border-dashed border-(--border-subtle)"
+                      className="upload-dropzone cursor-pointer border-2 border-dashed border-(--border-subtle) focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       onClick={() => coverInputRef.current?.click()}
+                      onKeyDown={handleCoverKeyDown}
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Upload cover image (optional). Press Enter or Space to open file selection dialog."
                     >
                       {!coverImageFileName ? (
                         <div className="file-upload-shadow">
