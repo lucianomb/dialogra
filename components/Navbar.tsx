@@ -23,7 +23,7 @@ const Navbar = () => {
           <div className="logo-text">Dialogra</div>
         </Link>
 
-        <nav className="w-fit flex gap-7 5 items-center">
+        <nav className="w-fit flex gap-7.5 items-center">
           {navItems.map(({label, href}) => {
             const isActive = pathName === href || (href != "/" && pathName.startsWith(href));
 
