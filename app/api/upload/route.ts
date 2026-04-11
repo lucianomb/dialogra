@@ -39,6 +39,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Something went wrong";
     const status = message.includes("Unauthorized") ? 401 : 500;
-    return NextResponse.json({error: message}, {status});
+    console.error('Upload error:', e);
+    const clientMessage = status === 401 ? 'Unauthorized: user not authenticated' : 'Upload failed';
+    return NextResponse.json({error: clientMessage}, {status});
   }
 }
