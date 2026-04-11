@@ -333,7 +333,7 @@ export function useVapi(book: IBook) {
     start,
     stop,
     limitError,
-    clearError,
+    clearErrors,
     // maxDurationSeconds,
     // remainingSeconds,
     // showTimeWarning,
