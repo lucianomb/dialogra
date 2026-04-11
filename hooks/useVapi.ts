@@ -54,14 +54,28 @@ export function useVapi(book: IBook) {
   const startTimeRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const isStoppingRef = useRef(false);
+  const unmountedRef = useRef(false);
 
   // Keep refs in sync with latest values for use in callbacks
   // const maxDurationRef = useLatestRef(limits.maxSessionMinutes * 60);
   const durationRef = useLatestRef(duration);
   const voice = book.persona || DEFAULT_VOICE;
 
+  const finalizeSessionIfPresent = useCallback(async () => {
+    if (!sessionIdRef.current) return;
+
+    const activeSessionId = sessionIdRef.current;
+    sessionIdRef.current = null;
+
+    await endVoiceSession(activeSessionId, durationRef.current).catch((err) =>
+      console.error('Failed to end voice session:', err),
+    );
+  }, [durationRef]);
+
   // Set up Vapi event listeners
   useEffect(() => {
+    unmountedRef.current = false;
+
     const handlers = {
       'call-start': () => {
         isStoppingRef.current = false;
@@ -103,12 +117,7 @@ export function useVapi(book: IBook) {
         }
 
         // End session tracking
-        if (sessionIdRef.current) {
-          endVoiceSession(sessionIdRef.current, durationRef.current).catch((err) =>
-            console.error('Failed to end voice session:', err),
-          );
-          sessionIdRef.current = null;
-        }
+        void finalizeSessionIfPresent();
 
         startTimeRef.current = null;
       },
@@ -182,10 +191,7 @@ export function useVapi(book: IBook) {
 
         // End session tracking on error
         if (sessionIdRef.current) {
-          endVoiceSession(sessionIdRef.current, durationRef.current).catch((err) =>
-            console.error('Failed to end voice session on error:', err),
-          );
-          sessionIdRef.current = null;
+          void finalizeSessionIfPresent();
         }
 
         // Show user-friendly error message
@@ -208,13 +214,12 @@ export function useVapi(book: IBook) {
     });
 
     return () => {
+      unmountedRef.current = true;
+
       // End active session on unmount
       if (sessionIdRef.current) {
         getVapi().stop();
-        endVoiceSession(sessionIdRef.current, durationRef.current).catch((err) =>
-          console.error('Failed to end voice session on unmount:', err),
-        );
-        sessionIdRef.current = null;
+        void finalizeSessionIfPresent();
       }
       // Cleanup handlers
       Object.entries(handlers).forEach(([event, handler]) => {
@@ -222,7 +227,7 @@ export function useVapi(book: IBook) {
       });
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, []);
+  }, [durationRef, finalizeSessionIfPresent]);
 
   const start = useCallback(async () => {
     if (!userId) {
@@ -234,8 +239,19 @@ export function useVapi(book: IBook) {
     setStatus('connecting');
 
     try {
+      const startupCancelled = () => unmountedRef.current || isStoppingRef.current;
+
       // Check session limits and create session record
       const result = await startVoiceSession(userId, book._id);
+
+      if (startupCancelled()) {
+        if (result.success && result.sessionId) {
+          sessionIdRef.current = result.sessionId;
+          await finalizeSessionIfPresent();
+        }
+        setStatus('idle');
+        return;
+      }
 
       if (!result.success) {
         setLimitError(result.error || 'Session limit reached. Please upgrade your plan.');
@@ -244,6 +260,13 @@ export function useVapi(book: IBook) {
       }
 
       sessionIdRef.current = result.sessionId || null;
+
+      if (startupCancelled()) {
+        await finalizeSessionIfPresent();
+        setStatus('idle');
+        return;
+      }
+
       // Note: Server-returned maxDurationMinutes is informational only
       // The actual limit is enforced by useLatestRef(limits.maxSessionMinutes * 60)
 
@@ -266,12 +289,18 @@ export function useVapi(book: IBook) {
           useSpeakerBoost: VOICE_SETTINGS.useSpeakerBoost,
         },
       });
+
+      if (startupCancelled()) {
+        await finalizeSessionIfPresent();
+        setStatus('idle');
+      }
     } catch (err) {
       console.error('Failed to start call:', err);
+      await finalizeSessionIfPresent();
       setStatus('idle');
       setLimitError('Failed to start voice session. Please try again.');
     }
-  }, [book._id, book.title, book.author, voice, userId]);
+  }, [book._id, book.title, book.author, finalizeSessionIfPresent, voice, userId]);
 
   const stop = useCallback(() => {
     isStoppingRef.current = true;
