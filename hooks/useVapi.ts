@@ -307,7 +307,7 @@ export function useVapi(book: IBook) {
     getVapi().stop();
   }, []);
 
-  const clearErrors = useCallback(() => {
+  const clearError = useCallback(() => {
     setLimitError(null);
   }, []);
 
@@ -333,7 +333,7 @@ export function useVapi(book: IBook) {
     start,
     stop,
     limitError,
-    clearErrors,
+    clearError,
     // maxDurationSeconds,
     // remainingSeconds,
     // showTimeWarning,
