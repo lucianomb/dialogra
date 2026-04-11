@@ -20,7 +20,8 @@ import {useAuth} from "@clerk/clerk-react";
 import {toast} from "sonner";
 import {checkBookExists, createBook, saveBookSegments} from "@/lib/actions/book.actions";
 import {useRouter} from "next/navigation";
-import { parsePDFFile, validatePDFFile, validateCoverImage } from "@/lib/utils"
+import { validatePDFFile, validateCoverImage } from "@/lib/utils"
+import { parsePDFFile } from "@/lib/pdf-client"
 import {upload} from "@vercel/blob/client";
 
 // Validation Schema
@@ -120,7 +121,7 @@ const UploadForm = () => {
       if (existsCheck.exists && existsCheck.book) {
         toast.info('Book with the same title already exists.');
         form.reset();
-        router.push(`/books/${book.data.slug}`);
+        router.push(`/books/${existsCheck.book.slug}`);
         return;
       }
 
@@ -177,7 +178,7 @@ const UploadForm = () => {
       if (book.alreadyExists) {
         toast.info('Book with the same title already exists.');
         form.reset();
-        router.push(`/books/${existsCheck.book.slug}`);
+        router.push(`/books/${book.data.slug}`);
         return;
       }
 

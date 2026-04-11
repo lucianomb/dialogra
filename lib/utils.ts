@@ -1,13 +1,14 @@
 import { TextSegment } from '@/types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { DEFAULT_VOICE, voiceOptions } from './constants';
-
-// File validation constants
-const MAX_PDF_SIZE = 50 * 1024 * 1024; // 50MB
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const PDF_MIME_TYPE = 'application/pdf';
+import {
+  ACCEPTED_IMAGE_TYPES,
+  ACCEPTED_PDF_TYPES,
+  DEFAULT_VOICE,
+  MAX_FILE_SIZE,
+  MAX_IMAGE_SIZE,
+  voiceOptions,
+} from './constants';
 
 
 export function cn(...inputs: ClassValue[]) {
@@ -91,78 +92,13 @@ export const getVoice = (persona?: string) => {
 
 // Format duration in seconds to MM:SS format
 export const formatDuration = (seconds: number): string => {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
+  const totalSecs = Math.floor(seconds);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-export async function parsePDFFile(file: File) {
-  try {
-    const pdfjsLib = await import('pdfjs-dist');
 
-    if (typeof window !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url,
-      ).toString();
-    }
-
-    // Read file as array buffer
-    const arrayBuffer = await file.arrayBuffer();
-
-    // Load PDF document
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-    const pdfDocument = await loadingTask.promise;
-
-    // Render first page as cover image
-    const firstPage = await pdfDocument.getPage(1);
-    const viewport = firstPage.getViewport({ scale: 2 }); // 2x scale for better quality
-
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const context = canvas.getContext('2d');
-
-    if (!context) {
-      throw new Error('Could not get canvas context');
-    }
-
-    await firstPage.render({
-      canvasContext: context,
-      viewport: viewport,
-    }).promise;
-
-    // Convert canvas to data URL
-    const coverDataURL = canvas.toDataURL('image/png');
-
-    // Extract text from all pages
-    let fullText = '';
-
-    for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
-      const page = await pdfDocument.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .filter((item) => 'str' in item)
-        .map((item) => (item as { str: string }).str)
-        .join(' ');
-      fullText += pageText + '\n';
-    }
-
-    // Split text into segments for search
-    const segments = splitIntoSegments(fullText);
-
-    // Clean up PDF document resources
-    await pdfDocument.destroy();
-
-    return {
-      content: segments,
-      cover: coverDataURL,
-    };
-  } catch (error) {
-    console.error('Error parsing PDF:', error);
-    throw new Error(`Failed to parse PDF file: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
 
 /**
  * Validates a PDF file
@@ -176,7 +112,7 @@ export const validatePDFFile = (file: File | null | undefined): { isValid: boole
   }
 
   // Check file type
-  if (file.type !== PDF_MIME_TYPE) {
+  if (!ACCEPTED_PDF_TYPES.includes(file.type)) {
     return { isValid: false, error: 'File must be a PDF (application/pdf)' };
   }
 
@@ -186,10 +122,10 @@ export const validatePDFFile = (file: File | null | undefined): { isValid: boole
   }
 
   // Check file size
-  if (file.size > MAX_PDF_SIZE) {
+  if (file.size > MAX_FILE_SIZE) {
     return {
       isValid: false,
-      error: `PDF file is too large. Maximum size is ${MAX_PDF_SIZE / (1024 * 1024)}MB`,
+      error: `PDF file is too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`,
     };
   }
 
@@ -214,10 +150,10 @@ export const validateCoverImage = (file: File | null | undefined): { isValid: bo
   }
 
   // Check file type
-  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
     return {
       isValid: false,
-      error: `Cover image must be one of: ${ALLOWED_IMAGE_TYPES.join(', ')}`,
+      error: `Cover image must be one of: ${ACCEPTED_IMAGE_TYPES.join(', ')}`,
     };
   }
 
