@@ -16,26 +16,37 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import LoadingOverlay from '@/components/LoadingOverlay'
+import {useAuth} from "@clerk/clerk-react";
+import {toast} from "sonner";
+import {checkBookExists, createBook, saveBookSegments} from "@/lib/actions/book.actions";
+import {useRouter} from "next/navigation";
+import { validatePDFFile, validateCoverImage } from "@/lib/utils"
+import { parsePDFFile } from "@/lib/pdf-client"
+import {upload} from "@vercel/blob/client";
 
 // Validation Schema
 const formSchema = z.object({
-  pdfFile: z.instanceof(File).nullable().optional().refine(
-    (file) => !file || file.size <= 50 * 1024 * 1024,
-    'PDF file must be max 50MB'
-  ).refine(
-    (file) => !file || file.type === 'application/pdf',
-    'File must be a PDF'
-  ),
-  coverImage: z.instanceof(File).nullable().optional().refine(
-    (file) => !file || file.size <= 10 * 1024 * 1024,
-    'Cover image must be max 10MB'
-  ).refine(
-    (file) => !file || file.type.startsWith('image/'),
-    'File must be an image'
-  ),
-  title: z.string().min(1, 'Title is required').max(200, 'Title must be less than 200 characters'),
-  author: z.string().min(1, 'Author name is required').max(100, 'Author name must be less than 100 characters'),
-  voice: z.enum(['dave', 'daniel', 'chris', 'rachel', 'sarah'])
+  title: z.string().min(1, 'Title is required').max(100, 'Title is too long'),
+  author: z.string().min(1, 'Author name is required').max(100, 'Author name is too long'),
+  persona: z.string().min(1, 'Please select a voice'),
+  pdfFile: z.instanceof(File).superRefine((file: File, ctx) => {
+    const validation = validatePDFFile(file);
+    if (!validation.isValid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: validation.error || 'Invalid PDF file',
+      });
+    }
+  }),
+  coverImage: z.instanceof(File).optional().superRefine((file: File | undefined, ctx) => {
+    const validation = validateCoverImage(file);
+    if (!validation.isValid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: validation.error || 'Invalid cover image',
+      });
+    }
+  }),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -44,17 +55,21 @@ const UploadForm = () => {
   const [pdfFileName, setPdfFileName] = useState<string | null>(null)
   const [coverImageFileName, setCoverImageFileName] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const coverInputRef = useRef<HTMLInputElement>(null)
+
+  const { userId } = useAuth();
+  const router = useRouter();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      pdfFile: undefined,
-      coverImage: undefined,
       title: '',
       author: '',
-      voice: 'rachel',
+      persona: '',
+      pdfFile: undefined,
+      coverImage: undefined,
     },
   })
 
@@ -81,8 +96,7 @@ const UploadForm = () => {
     if (pdfInputRef.current) {
       pdfInputRef.current.value = ''
     }
-    form.setValue('pdfFile', null, { shouldValidate: true, shouldDirty: true })
-    form.clearErrors('pdfFile')
+    form.resetField('pdfFile')
   }
 
   const removeCoverImage = () => {
@@ -90,23 +104,97 @@ const UploadForm = () => {
     if (coverInputRef.current) {
       coverInputRef.current.value = ''
     }
-    form.setValue('coverImage', null, { shouldValidate: true, shouldDirty: true })
-    form.clearErrors('coverImage')
+    form.resetField('coverImage')
   }
 
   const onSubmit = async (values: FormValues) => {
+    if (!userId) {
+      return toast.error('Please log in to upload books');
+    }
+
     setIsSubmitting(true)
+
+    // PostHog -> Track Book Uploads...
+
     try {
-      // Log sanitized telemetry event without exposing file metadata
-      console.log('Book upload initiated', {
-        hasPdf: !!values.pdfFile,
-        hasImage: !!values.coverImage,
-        voice: values.voice,
+      const existsCheck = await checkBookExists(values.title);
+      if (existsCheck.exists && existsCheck.book) {
+        toast.info('Book with the same title already exists.');
+        form.reset();
+        router.push(`/books/${existsCheck.book.slug}`);
+        return;
+      }
+
+      const fileTitle = values.title.replace(/\s+/g, '-').toLowerCase();
+      const pdfFile = values.pdfFile;
+
+      const parsedPDF = await parsePDFFile(pdfFile);
+
+      if (parsedPDF.content.length === 0) {
+        toast.error('PDF is empty. Please upload a valid PDF file.');
+        return;
+      }
+
+      const uploadedPdfBlob = await upload(fileTitle, pdfFile, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+        contentType: 'application/pdf',
       })
-      // Simular llamada a API
-      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      let coverUrl: string;
+
+      if (values.coverImage) {
+        const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, values.coverImage, {
+          access: 'public',
+          handleUploadUrl: '/api/upload',
+          contentType: values.coverImage.type,
+        });
+        coverUrl = uploadedCoverBlob.url;
+      } else {
+        const response = await fetch(parsedPDF.cover)
+        const blob = await response.blob();
+
+        const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, blob, {
+          access: 'public',
+          handleUploadUrl: '/api/upload',
+          contentType: blob.type,
+        });
+        coverUrl = uploadedCoverBlob.url;
+      }
+
+      const book = await createBook({
+        clerkId: userId,
+        title: values.title,
+        author: values.author,
+        persona: values.persona,
+        fileURL: uploadedPdfBlob.url,
+        fileBlobKey: uploadedPdfBlob.pathname,
+        coverURL: coverUrl,
+        fileSize: pdfFile.size
+      });
+
+      if(!book.success) throw new Error("Failed to create book.");
+
+      if (book.alreadyExists) {
+        toast.info('Book with the same title already exists.');
+        form.reset();
+        router.push(`/books/${book.data.slug}`);
+        return;
+      }
+
+      const segments = await saveBookSegments(book.data._id, userId, parsedPDF.content);
+
+      if (!segments.success) {
+        toast.error('Failed to save book segments');
+        throw new Error('Failed to save book segments');
+      }
+
+      form.reset();
+      router.push(`/`);
     } catch (error) {
       console.error('Error submitting form:', error)
+
+      toast.error('Error submitting form. Please try again later.');
     } finally {
       setIsSubmitting(false)
     }
@@ -287,7 +375,7 @@ const UploadForm = () => {
             {/* Voice Selector */}
             <FormField
               control={form.control}
-              name="voice"
+              name="persona"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="form-label">Choose Assistant Voice</FormLabel>
