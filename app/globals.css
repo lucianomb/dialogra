@@ -403,13 +403,13 @@
     box-shadow: 0px 10px 30px 0px rgba(0, 0, 0, 0.1);
   }
   .vapi-mic-wrapper {
-    @apply absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2;
+    @apply absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 flex items-center justify-center;
   }
   .vapi-pulse-ring {
-    @apply absolute inset-0 w-[50px] h-[50px] sm:w-[60px] sm:h-[60px] bg-white rounded-full opacity-50 animate-ping;
+    @apply absolute w-[50px] h-[50px] sm:w-[60px] sm:h-[60px] bg-white rounded-full opacity-70 animate-ping pointer-events-none;
   }
   .vapi-mic-btn {
-    @apply relative w-[50px] h-[50px] sm:w-[60px] sm:h-[60px] cursor-pointer rounded-full flex items-center justify-center transition-all duration-300 border-0 bg-white;
+    @apply relative z-10 w-[50px] h-[50px] sm:w-[60px] sm:h-[60px] cursor-pointer rounded-full flex items-center justify-center transition-all duration-300 border-0 bg-white;
 
     &:hover {
       transform: scale(1.05);
