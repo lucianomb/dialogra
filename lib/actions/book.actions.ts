@@ -1,6 +1,6 @@
 'use server';
 
-import {CreateBook, TextSegment} from "@/types";
+import {CreateBook, IBook, TextSegment} from "@/types";
 import {connectToDatabase} from "@/database/mongoose";
 import {generateSlug, serializeData} from "@/lib/utils";
 import Book from '@/database/models/book.model';
@@ -86,6 +86,26 @@ export const createBook = async(data: CreateBook) => {
   }
 }
 
+export const getBookBySlug = async (slug: string) => {
+  try {
+    await connectToDatabase();
+
+    const book = await Book.findOne({ slug }).lean();
+
+    if (!book) {
+      return { success: false, error: 'Book not found' };
+    }
+
+    return {
+      success: true,
+      data: serializeData(book) as IBook,
+    };
+  } catch (e) {
+    console.error('Error fetching book by slug: ', e);
+    return { success: false, error: e };
+  }
+};
+
 export const saveBookSegments = async (bookId: string, clerkId: string, segments: TextSegment[]) => {
   let session: ClientSession | null = null;
 
@@ -138,3 +158,45 @@ export const saveBookSegments = async (bookId: string, clerkId: string, segments
     }
   }
 }
+
+export const searchBookSegments = async (
+  bookId: string,
+  query: string,
+  segmentCount = 3,
+) => {
+  try {
+    if (!bookId?.trim() || !query?.trim()) {
+      return { success: true, data: [] as Array<{ segmentIndex: number; content: string }> };
+    }
+
+    await connectToDatabase();
+
+    const segments = await BookSegment.find(
+      {
+        bookId,
+        $text: { $search: query.trim() },
+      },
+      {
+        _id: 0,
+        content: 1,
+        segmentIndex: 1,
+        score: { $meta: 'textScore' },
+      },
+    )
+      .sort({ score: { $meta: 'textScore' } })
+      .limit(segmentCount)
+      .lean();
+
+    return {
+      success: true,
+      data: segments as Array<{ segmentIndex: number; content: string }>,
+    };
+  } catch (e) {
+    console.error('Error searching book segments: ', e);
+    return {
+      success: false,
+      error: e,
+      data: [] as Array<{ segmentIndex: number; content: string }>,
+    };
+  }
+};

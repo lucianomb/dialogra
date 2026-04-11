@@ -2,7 +2,7 @@ import { Document, Types } from 'mongoose';
 import { ReactNode } from 'react';
 import { Control, FieldPath, FieldValues } from 'react-hook-form';
 import { LucideIcon } from 'lucide-react';
-import { z } from 'zod';
+import z from 'zod';
 import { UploadSchema } from '@/lib/zod';
 
 // ============================================
@@ -18,7 +18,7 @@ export interface IBook extends Document {
   persona?: string;
   fileURL: string;
   fileBlobKey: string;
-  coverURL?: string;
+  coverURL: string;
   coverBlobKey?: string;
   fileSize: number;
   totalSegments: number;
@@ -115,4 +115,27 @@ export interface FileUploadFieldProps<T extends FieldValues> {
   icon: LucideIcon;
   placeholder: string;
   hint: string;
+}
+import {PLANS, PlanType} from "@/lib/subscription-constants";
+
+export interface SessionCheckResult {
+  allowed: boolean;
+  currentCount: number;
+  limit: number;
+  plan: PlanType;
+  maxDurationMinutes: number;
+  error?: string;
+}
+
+export interface StartSessionResult {
+  success: boolean;
+  sessionId?: string;
+  maxDurationMinutes?: number;
+  error?: string;
+  isBillingError?: boolean;
+}
+
+export interface EndSessionResult {
+  success: boolean;
+  error?: string;
 }
