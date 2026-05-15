@@ -1,5 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
 import useVapi from "@/hooks/useVapi";
 import {Mic, MicOff} from "lucide-react";
 import {IBook} from "@/types";
@@ -7,8 +10,43 @@ import Image from "next/image";
 import Transcript from "@/components/Transcript";
 
 const VapiControls = ({book}: {book: IBook}) => {
-  const {status, isActive, messages, currentMessage, currentUserMessage, duration, start, stop, clearError} = useVapi(book);
+  const {
+    status,
+    isActive,
+    messages,
+    currentMessage,
+    currentUserMessage,
+    duration,
+    maxDurationSeconds,
+    limitError,
+    didTimeout,
+    start,
+    stop,
+  } = useVapi(book);
+  const router = useRouter();
   const isAiResponding = status === 'thinking' || status === 'speaking';
+
+  useEffect(() => {
+    if (didTimeout) {
+      router.push('/');
+    }
+  }, [didTimeout, router]);
+
+  const statusConfig = {
+    idle: { label: 'Ready', dotClass: 'vapi-status-dot-ready' },
+    connecting: { label: 'Connecting', dotClass: 'vapi-status-dot-connecting' },
+    starting: { label: 'Speaking', dotClass: 'vapi-status-dot-speaking' },
+    listening: { label: 'Listening', dotClass: 'vapi-status-dot-listening' },
+    thinking: { label: 'Thinking', dotClass: 'vapi-status-dot-thinking' },
+    speaking: { label: 'Speaking', dotClass: 'vapi-status-dot-speaking' },
+  } as const;
+
+  const currentStatus = statusConfig[status];
+  const formatDuration = (value: number) => {
+    const minutes = Math.floor(value / 60);
+    const seconds = value % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   return (
     <>
@@ -51,10 +89,10 @@ const VapiControls = ({book}: {book: IBook}) => {
 
             {/* Status Badges Row */}
             <div className="flex flex-wrap gap-2">
-              {/* Ready */}
+              {/* Live call status */}
               <div className="vapi-status-indicator">
-                <span className="vapi-status-dot vapi-status-dot-ready" />
-                <span className="vapi-status-text">Ready</span>
+                <span className={`vapi-status-dot ${currentStatus.dotClass}`} />
+                <span className="vapi-status-text">{currentStatus.label}</span>
               </div>
 
               {/* Voice */}
@@ -64,11 +102,21 @@ const VapiControls = ({book}: {book: IBook}) => {
 
               {/* Timer */}
               <div className="vapi-status-indicator">
-                <span className="vapi-status-text">0:00/15:00</span>
+                <span className="vapi-status-text">
+                  {formatDuration(duration)}/{formatDuration(maxDurationSeconds)}
+                </span>
               </div>
             </div>
           </div>
         </div>
+
+        {limitError && (
+          <div className="warning-banner">
+            <div className="warning-banner-content">
+              <span className="warning-banner-text">{limitError}</span>
+            </div>
+          </div>
+        )}
 
         <div className="vapi-transcript-wrapper">
           <Transcript

@@ -7,6 +7,8 @@ import Book from '@/database/models/book.model';
 import BookSegment from "@/database/models/bookSegment.model";
 import type {ClientSession} from 'mongoose';
 import {revalidatePath} from "next/cache";
+import { auth } from '@clerk/nextjs/server';
+import { getServerSubscription } from '@/lib/subscription-server';
 
 export const getAllBooks = async () => {
   try {
@@ -56,6 +58,15 @@ export const checkBookExists = async (title: string) => {
 
 export const createBook = async(data: CreateBook) => {
   try {
+    const { userId } = await auth();
+
+    if (!userId || userId !== data.clerkId) {
+      return {
+        success: false,
+        error: 'Unauthorized to create a book for this user.',
+      }
+    }
+
     await connectToDatabase();
 
     const slug = generateSlug(data.title);
@@ -70,7 +81,16 @@ export const createBook = async(data: CreateBook) => {
       }
     }
 
-    // Todo: Check subscription limits before creating a book
+    const subscription = await getServerSubscription();
+    const totalBooks = await Book.countDocuments({ clerkId: data.clerkId });
+
+    if (totalBooks >= subscription.limits.maxBooks) {
+      return {
+        success: false,
+        error: `You reached your ${subscription.plan} plan limit of ${subscription.limits.maxBooks} book(s).`,
+        isBillingError: true,
+      }
+    }
 
     const book = await Book.create({...data, slug, totalSegments: 0});
 
