@@ -173,7 +173,16 @@ const UploadForm = () => {
         fileSize: pdfFile.size
       });
 
-      if(!book.success) throw new Error("Failed to create book.");
+      if (!book.success) {
+        if ('isBillingError' in book && book.isBillingError) {
+          toast.error(book.error || 'Book limit reached. Please upgrade your plan.');
+          router.push('/subscriptions');
+          return;
+        }
+
+        toast.error(typeof book.error === 'string' ? book.error : 'Failed to create book.');
+        return;
+      }
 
       if (book.alreadyExists) {
         toast.info('Book with the same title already exists.');
@@ -186,7 +195,7 @@ const UploadForm = () => {
 
       if (!segments.success) {
         toast.error('Failed to save book segments');
-        throw new Error('Failed to save book segments');
+        return;
       }
 
       form.reset();
