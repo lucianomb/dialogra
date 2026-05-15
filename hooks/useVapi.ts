@@ -176,9 +176,11 @@ export function useVapi(book: IBook) {
           if (message.role === 'user') setCurrentUserMessage('');
 
           setMessages((prev) => {
-            const isDupe = prev.some(
-              (m) => m.role === message.role && m.content === message.transcript,
-            );
+            const lastMessage = prev[prev.length - 1];
+            const isDupe =
+              lastMessage &&
+              lastMessage.role === message.role &&
+              lastMessage.content === message.transcript;
             return isDupe ? prev : [...prev, { role: message.role, content: message.transcript }];
           });
         }

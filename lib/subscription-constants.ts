@@ -34,10 +34,10 @@ export const PLANS: Record<PlanType, PlanLimit> = {
 };
 
 export const getCurrentBillingPeriodStart = (date = new Date()): Date =>
-  new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0));
 
 export const getCurrentBillingPeriodEnd = (date = new Date()): Date =>
-  new Date(date.getFullYear(), date.getMonth() + 1, 1, 0, 0, 0, 0);
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1, 0, 0, 0, 0));
 
 export const getCurrentBillingPeriodRange = (date = new Date()) => ({
   start: getCurrentBillingPeriodStart(date),

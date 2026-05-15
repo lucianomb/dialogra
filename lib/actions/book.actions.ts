@@ -2,19 +2,30 @@
 
 import {CreateBook, IBook, TextSegment} from "@/types";
 import {connectToDatabase} from "@/database/mongoose";
-import {generateSlug, serializeData} from "@/lib/utils";
+import {generateSlug, serializeData, escapeRegex} from "@/lib/utils";
 import Book from '@/database/models/book.model';
 import BookSegment from "@/database/models/bookSegment.model";
-import type {ClientSession} from 'mongoose';
+import mongoose, { type ClientSession } from 'mongoose';
 import {revalidatePath} from "next/cache";
 import { auth } from '@clerk/nextjs/server';
 import { getServerSubscription } from '@/lib/subscription-server';
 
-export const getAllBooks = async () => {
+export const getAllBooks = async (query?: string) => {
   try {
     await connectToDatabase();
 
-    const books = await Book.find().sort({ createdAt: -1 }).lean();
+    let filter = {};
+    if (query) {
+      const regex = new RegExp(escapeRegex(query), 'i');
+      filter = {
+        $or: [
+          { title: { $regex: regex } },
+          { author: { $regex: regex } },
+        ],
+      };
+    }
+
+    const books = await Book.find(filter).sort({ createdAt: -1 }).lean();
 
     return {
       success: true,
@@ -56,7 +67,8 @@ export const checkBookExists = async (title: string) => {
   }
 }
 
-export const createBook = async(data: CreateBook) => {
+export const createBook = async (data: CreateBook) => {
+  let session: ClientSession | null = null;
   try {
     const { userId } = await auth();
 
@@ -64,50 +76,65 @@ export const createBook = async(data: CreateBook) => {
       return {
         success: false,
         error: 'Unauthorized to create a book for this user.',
-      }
+      };
     }
 
     await connectToDatabase();
+    session = await mongoose.startSession();
+    session.startTransaction();
 
     const slug = generateSlug(data.title);
 
-    const existingBook = await Book.findOne({ slug }).lean();
+    // Check if book already exists (can be done inside or outside, but safer inside)
+    const existingBook = await Book.findOne({ slug }).session(session).lean();
 
-    if(existingBook) {
+    if (existingBook) {
+      await session.commitTransaction();
       return {
         success: true,
         data: serializeData(existingBook),
         alreadyExists: true,
-      }
+      };
     }
 
     const subscription = await getServerSubscription();
-    const totalBooks = await Book.countDocuments({ clerkId: data.clerkId });
+    // Re-check count inside transaction
+    const totalBooks = await Book.countDocuments({ clerkId: data.clerkId }).session(session);
 
     if (totalBooks >= subscription.limits.maxBooks) {
+      await session.abortTransaction();
       return {
         success: false,
         error: `You reached your ${subscription.plan} plan limit of ${subscription.limits.maxBooks} book(s).`,
         isBillingError: true,
-      }
+      };
     }
 
-    const book = await Book.create({...data, slug, totalSegments: 0});
+    const [book] = await Book.create([{ ...data, slug, totalSegments: 0 }], { session });
+
+    await session.commitTransaction();
 
     revalidatePath('/');
 
     return {
       success: true,
       data: serializeData(book),
-    }
+    };
   } catch (e) {
+    if (session) {
+      await session.abortTransaction();
+    }
     console.error('Error creating book: ', e);
     return {
       success: false,
       error: e,
+    };
+  } finally {
+    if (session) {
+      await session.endSession();
     }
   }
-}
+};
 
 export const getBookBySlug = async (slug: string) => {
   try {
